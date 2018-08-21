@@ -5,6 +5,7 @@ import json
 import socket
 import logging
 import numbers
+import ssl
 
 from tornado import ioloop
 from tornado import gen
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 class BrokerBase(object):
     def __init__(self, broker_url, *args, **kwargs):
         purl = urlparse(broker_url)
+        self.scheme = purl.scheme
         self.host = purl.hostname
         self.port = purl.port
         self.vhost = purl.path[1:]
@@ -103,6 +105,7 @@ class Redis(BrokerBase):
 
     def __init__(self, broker_url, *args, **kwargs):
         super(Redis, self).__init__(broker_url)
+        self.scheme = self.scheme or 'redis'
         self.host = self.host or 'localhost'
         self.port = self.port or 6379
         self.vhost = self._prepare_virtual_host(self.vhost)
@@ -110,8 +113,14 @@ class Redis(BrokerBase):
         if not redis:
             raise ImportError('redis library is required')
 
+        use_ssl = False
+        ssl_cert_reqs = None
+        if self.scheme == 'rediss':
+            use_ssl = True
+            ssl_cert_reqs = ssl.CERT_NONE
         self.redis = redis.Redis(host=self.host, port=self.port,
-                                 db=self.vhost, password=self.password)
+                                 db=self.vhost, password=self.password,
+                                 ssl=use_ssl, ssl_cert_reqs=ssl_cert_reqs)
 
         broker_options = kwargs.get('broker_options')
 
@@ -157,7 +166,7 @@ class Broker(object):
         scheme = urlparse(broker_url).scheme
         if scheme == 'amqp':
             return RabbitMQ(broker_url, *args, **kwargs)
-        elif scheme == 'redis':
+        elif scheme == 'redis' or scheme == 'rediss':
             return Redis(broker_url, *args, **kwargs)
         else:
             raise NotImplementedError
